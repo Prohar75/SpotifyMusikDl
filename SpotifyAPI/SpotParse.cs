@@ -1,23 +1,41 @@
-﻿using SpotifyAPI.Web;
-using System.Text.RegularExpressions;
-using SpotifyDownloader.entities;
+﻿using Microsoft.Extensions.Configuration;
+using SpotifyAPI.Web;
 using SpotifyDownloader;
+using SpotifyDownloader.entities;
+using System.Text;
+using System.Text.RegularExpressions;
 
+
+
+public class SpotifyApiSettings
+{
+        public string ApiKey { get; set; }
+        public string ApiSecret { get; set; }
+}
 class SpotParse
 {
-    private string clientId;
-    private string clientSecret;
     private Track[] trackNames;
-    protected SpotParse(string clientId, string clientSecret)
-    {
-        this.clientId = clientId;
-        this.clientSecret = clientSecret;
-    }
+    protected SpotParse() { }
 
+    /// <summary>
+    /// Creates a list of sound-tracks
+    /// </summary>
     protected async Task SetTrackList(string spotifyLink)
     {
+        var configuration = new ConfigurationBuilder()
+                    .SetBasePath(Directory.GetCurrentDirectory())
+                    .AddJsonFile("config.json")
+                    .Build();
+
+        var spotifySettings = configuration.GetSection("SpotifyApiSettings").Get<SpotifyApiSettings>();
+
+        if (string.IsNullOrEmpty(spotifySettings?.ApiKey))
+        {
+            throw new Exception("Spotify API key is missing in configuration");
+        }
+
         var config = SpotifyClientConfig.CreateDefault();
-        var request = new ClientCredentialsRequest(clientId, clientSecret);
+        var request = new ClientCredentialsRequest(spotifySettings.ApiKey, spotifySettings.ApiSecret);
         var response = await new OAuthClient(config).RequestToken(request);
 
         var spotify = new SpotifyClient(config.WithToken(response.AccessToken));
@@ -38,7 +56,7 @@ class SpotParse
                 var track = item.Track as FullTrack;
                 if (track != null)
                 {
-                    tracksList.Add(new Track(track.Name, string.Join(", ", track.Artists.Select(a => a.Name))));
+                    tracksList.Add(new Track(track.Name, string.Join(", ", track.Artists.Select(a => a.Name)))); // Adding an element with name of soundtrack and name of artist 
                 }
             }
         }
@@ -47,17 +65,17 @@ class SpotParse
             var albumTracks = await spotify.Albums.Get(spotifyId);
             foreach (var track in albumTracks.Tracks.Items)
             {
-                tracksList.Add(new Track(track.Name, string.Join(", ", track.Artists.Select(a => a.Name))));
+                tracksList.Add(new Track(track.Name, string.Join(", ", track.Artists.Select(a => a.Name)))); // Adding an element with name of soundtrack and name of artist 
             }
         }
         else if (isTrack)
         {
             var oneTrack = await spotify.Tracks.Get(spotifyId);
-            tracksList.Add(new Track(oneTrack.Name, string.Join(", ", oneTrack.Artists.Select(a => a.Name))));
+            tracksList.Add(new Track(oneTrack.Name, string.Join(", ", oneTrack.Artists.Select(a => a.Name)))); // Adding an element with name of soundtrack and name of artist 
         }
         else
         {
-            Console.WriteLine("❌ Invalid Spotify link! Must be a playlist or album.");
+            throw new Exception("Invalid type of link.");
             return;
         }
 
@@ -65,7 +83,11 @@ class SpotParse
         trackNames = tracksList.ToArray();
     }
 
-    protected string ParseLink(string spotifyLink)
+    ///<summary>
+    /// Parses Spotify link
+    ///</summary>
+    ///<returns>Returns an ID of soundtrack/album/playlist</returns>
+    protected static string ParseLink(string spotifyLink)
     {
         string pattern = @"(?:playlist|album|track)/([A-Za-z0-9]+)"; 
         Match match = Regex.Match(spotifyLink, pattern);
@@ -83,54 +105,81 @@ class SpotParse
     {
         return trackNames;
     }
-    
 
     static async Task Main(string[] args)
     {
-        try
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+        string clientId = "671c8f05acea48c7b078077c93a1585b";
+        string clientSecret = "16ffaec6e4924ed8a1518baed1cad33c";
+        do // loop program
         {
-            string clientId = "671c8f05acea48c7b078077c93a1585b";
-            string clientSecret = "16ffaec6e4924ed8a1518baed1cad33c";
+            // Main screen UI
+            AppUI.DrawMainScreen();
 
-            Console.Write("Playlist Link: ");
-            string playlistId = Console.ReadLine();
-        
-            SpotParse parser = new SpotParse(clientId, clientSecret);
-            await parser.SetTrackList(playlistId);
-            Console.OutputEncoding = System.Text.Encoding.UTF8;
-            var playlistNames = parser.GetTrackList();
-            Console.WriteLine("|----------------------");
-            foreach (var trackName in playlistNames)
+            try
             {
-                Console.WriteLine($"|Name   - {trackName.GetName()}\n|Artist - {trackName.GetArtist()}");
-                Console.WriteLine("|----------------------");
-            }
-            Console.Write("Does this data correct? y/n: ");
-            bool exit = false;
-            do
-            {
-                string answer = Console.ReadLine();
-                switch (answer)
+                // Enter link,parse it and then get a list or just a sound-track name
+                string playlistId = Console.ReadLine();
+                SpotParse parser = new SpotParse();
+                await parser.SetTrackList(playlistId);
+                var playlistNames = parser.GetTrackList();
+
+                // Confirmation screen UI
+                AppUI.DrawConfirmationScreen(playlistNames);
+
+                bool exit = false;
+                bool answer = true;
+                do
                 {
-                    case "y":
-                        foreach (var trackName in playlistNames)
-                        {
-                            await YoutubeDownloader.Search($"{trackName.GetName()} - {trackName.GetArtist()}");
-                        }
-                        exit = true;
-                        break;
-                    case "n":
-                        exit = true;
-                        return;
-                    default:
-                        Console.Write("Incorrect type of answer. You can use only y/n: ");
-                        break;
-                }
-            } while (exit == false);
-        }
-        catch (System.Exception e)
-        {
-            Console.Write($"Error: {e.Message}");
-        }
+                    // 'Yes' or 'No' choise
+                    ConsoleKeyInfo keyInfo = Console.ReadKey();
+                    switch (keyInfo.Key)
+                    {
+                        case ConsoleKey.LeftArrow:
+                            AppUI.YesResponse();
+                            answer = true; //continues the loop
+                            break;
+                        case ConsoleKey.RightArrow:
+                            AppUI.NoResponse(); // breaks the loop
+                            answer = false;
+                            break;
+                        case ConsoleKey.Enter:
+                            if (answer == false)
+                            {
+                                exit = true;
+                                break;
+                            }
+                            else
+                            {
+                                int totalTracks = playlistNames.Length;
+                                for (int i = 0; i <= totalTracks; i++)
+                                {
+                                    if (i < totalTracks)
+                                    {
+                                        double progressRatio = ((double)(i + 1)) / totalTracks; // Calculating percentage of maximum (totalTracks)
+                                        AppUI.DrawDownloadProgress(i + 1, totalTracks, playlistNames[i], progressRatio); // Drawing progress bar based on previous calculations
+                                        await YoutubeDownloader.SearchAndDownload($"{playlistNames[i].GetName()} - {playlistNames[i].GetArtist()}"); // Searcing and Downloading songs to .mp3
+                                    }
+                                    else
+                                    {
+                                        AppUI.DrawDownloadComplete(); // Download-Complete screen
+                                    }
+                                }
+                                while (Console.ReadKey(true).Key != ConsoleKey.Enter) { }
+                                exit = true;
+                                break;
+                            }
+                        default:
+                            break;
+                    }
+                } while (exit == false);
+            }
+            catch (Exception ex)
+            {
+                AppUI.DrawError(ex.Message); // Draws error message
+                while (Console.ReadKey(true).Key != ConsoleKey.Enter) { }
+            }
+        } while (true);
     }
 }
